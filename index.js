@@ -230,106 +230,99 @@ async function handleTryoutAdd(interaction) {
   await interaction.editReply(msg);
 }
 
-// /quotacheck: complex logic described by you
-// Option B: if B cell is empty -> IGNORE the row entirely (no checks, no increments, no resets for that row)
+// /quotacheck: corrected & optimized
 async function handleQuotaCheck(interaction) {
   await interaction.deferReply();
 
-  const summary = { topIncrements: [], bottomIncrements: [], sheetsUpdated: [] };
+  const summary = {
+    topIncrements: [],
+    bottomIncrements: [],
+    sheetsUpdated: []
+  };
 
   for (const sheetName of SHEETS) {
     const updates = [];
 
-    // TOP block: read A7:J13 to access B, F, H, J and D/E for resets
-    const topValues = await getValues(`${sheetName}!A7:J13`); // index 0 => row7
+    // ---- TOP BLOCK (Rows 7–13) ----
+    const topValues = await getValues(`${sheetName}!A7:J13`);
 
-    // iterate rows 7..13 (topValues length may be <7)
     for (let i = 0; i < topValues.length; i++) {
-      const actualRow = 7 + i;
+      const rowNumber = 7 + i;
       const row = topValues[i] || [];
-      const nameCell = (row[COL.B] || '').toString().trim();
+      const username = (row[COL.B] || '').trim();
 
-      // Option B: skip entire row if B is empty
-      if (!nameCell) continue;
+      // Skip empty rows entirely
+      if (!username) continue;
 
-      // For rows 8..13 we check J and H (quota checkbox and exemption)
-      if (actualRow >= 8 && actualRow <= 13) {
-        const jCell = row[COL.J];
-        const hCell = row[COL.H];
-        const jChecked = isChecked(jCell);
-        const hChecked = isChecked(hCell);
+      // Rows 8–13 quotas (F increments)
+      if (rowNumber >= 8 && rowNumber <= 13) {
+        const quotaPassed = isChecked(row[COL.J]);
+        const exempt = isChecked(row[COL.H]);
 
-        // If J is NOT checked and H is NOT checked -> increment F
-        if (!jChecked && !hChecked) {
-          const fCurrent = parseInt(row[COL.F] || 0) || 0;
+        if (!quotaPassed && !exempt) {
+          const fCurrent = Number(row[COL.F] || 0);
           const fNew = fCurrent + 1;
-          updates.push({ range: `${sheetName}!F${actualRow}`, values: [[fNew]] });
-          summary.topIncrements.push({ sheet: sheetName, row: actualRow, name: nameCell, info: `F=${fNew}` });
+
+          updates.push({ range: `${sheetName}!F${rowNumber}`, values: [[fNew]] });
+          summary.topIncrements.push({ sheet: sheetName, row: rowNumber, name: username, info: `F=${fNew}` });
         }
       }
 
-      // Reset D and E only when B is not empty (Option B)
-      updates.push({ range: `${sheetName}!D${actualRow}`, values: [[0]] });
-      updates.push({ range: `${sheetName}!E${actualRow}`, values: [[0]] });
+      // Reset D & E (only if username exists)
+      updates.push({ range: `${sheetName}!D${rowNumber}`, values: [[0]] });
+      updates.push({ range: `${sheetName}!E${rowNumber}`, values: [[0]] });
     }
 
-    // Note: earlier you asked to reset B7-B10 — Option B says ignore rows without name.
-    // To respect Option B, we will only write B7-B10 resets when the row has a non-empty B.
-    // But because B is the target cell itself, resetting B to 0 would erase the name.
-    // The user originally wanted B7-B10 reset regardless, then chose Option B.
-    // Following Option B, we will NOT reset B7-B10 if those rows are empty; however
-    // we also must not overwrite names. We'll set B7-B10 to 0 ONLY if they already contain a value that is numeric/string convertible.
-    // Implementation: for rows 7..10, if there's a non-empty B cell in topValues, set it to 0.
+    // ---- Tryout reset: ONLY G7–G10 ----
     for (let r = 7; r <= 10; r++) {
-      const idx = r - 7; // index into topValues
-      const row = topValues[idx] || [];
-      const nameCell = (row[COL.B] || '').toString().trim();
-      if (nameCell) {
-        updates.push({ range: `${sheetName}!B${r}`, values: [[0]] });
+      const row = topValues[r - 7] || [];
+      const username = (row[COL.B] || '').trim();
+
+      if (username) {
+        updates.push({ range: `${sheetName}!G${r}`, values: [[0]] });
       }
     }
 
-    // BOTTOM block: read A19:I40 to access B, F, G, I and D for resets
-    const bottomValues = await getValues(`${sheetName}!A19:I40`); // index 0 => row19
+    // ---- BOTTOM BLOCK (19–40) ----
+    const bottomValues = await getValues(`${sheetName}!A19:I40`);
 
     for (let i = 0; i < bottomValues.length; i++) {
-      const actualRow = 19 + i;
+      const rowNumber = 19 + i;
       const row = bottomValues[i] || [];
-      const nameCell = (row[COL.B] || '').toString().trim();
+      const username = (row[COL.B] || '').trim();
 
-      // Option B: skip entire row if B is empty
-      if (!nameCell) continue;
+      // Skip empty names
+      if (!username) continue;
 
-      const iCell = row[COL.I];
-      const gCell = row[COL.G];
-      const iChecked = isChecked(iCell);
-      const gChecked = isChecked(gCell);
+      // Quota logic for troopers
+      const quotaPassed = isChecked(row[COL.I]);
+      const exempt = isChecked(row[COL.G]);
 
-      if (!iChecked && !gChecked) {
-        const fCurrent = parseInt(row[COL.F] || 0) || 0;
+      if (!quotaPassed && !exempt) {
+        const fCurrent = Number(row[COL.F] || 0);
         const fNew = fCurrent + 1;
-        updates.push({ range: `${sheetName}!F${actualRow}`, values: [[fNew]] });
-        summary.bottomIncrements.push({ sheet: sheetName, row: actualRow, name: nameCell, info: `F=${fNew}` });
+
+        updates.push({ range: `${sheetName}!F${rowNumber}`, values: [[fNew]] });
+        summary.bottomIncrements.push({ sheet: sheetName, row: rowNumber, name: username, info: `F=${fNew}` });
       }
 
-      // Reset D for this row (only if B not empty)
-      updates.push({ range: `${sheetName}!D${actualRow}`, values: [[0]] });
+      // Reset D only if username exists
+      updates.push({ range: `${sheetName}!D${rowNumber}`, values: [[0]] });
     }
 
-    // If we collected updates for this sheet, send a single batchUpdate
+    // Commit updates for this sheet
     if (updates.length > 0) {
       await batchUpdate(updates);
       summary.sheetsUpdated.push(sheetName);
     }
-  } // end sheet loop
+  }
 
-  // Build summary message
-  const parts = [];
-  parts.push(buildSummary('Top increments (F8-F13)', summary.topIncrements.map(x => ({ ...x, name: x.name, info: x.info })) ));
-  parts.push(buildSummary('Bottom increments (F19-F40)', summary.bottomIncrements.map(x => ({ ...x, name: x.name, info: x.info })) ));
-  parts.push(`Sheets updated: ${summary.sheetsUpdated.length > 0 ? summary.sheetsUpdated.join(', ') : 'none'}`);
-
-  await interaction.editReply(`✅ Quota check complete:\n${parts.join('\n\n')}`);
+  await interaction.editReply(
+    `✅ **Quota check complete**\n\n` +
+    `**Top increments:**\n${summary.topIncrements.map(x => `- ${x.name} (${x.sheet} R${x.row}) → ${x.info}`).join('\n') || 'none'}\n\n` +
+    `**Bottom increments:**\n${summary.bottomIncrements.map(x => `- ${x.name} (${x.sheet} R${x.row}) → ${x.info}`).join('\n') || 'none'}\n\n` +
+    `**Sheets updated:** ${summary.sheetsUpdated.join(', ') || 'none'}`
+  );
 }
 
 // ---- Dispatcher ----
